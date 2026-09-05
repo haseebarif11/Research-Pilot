@@ -1,0 +1,3 @@
+"""
+ResearchPilot Agentic RAG Package
+"""

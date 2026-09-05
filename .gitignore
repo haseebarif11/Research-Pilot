@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Data / Vector store
+data/chroma/
+data/uploads/
+
+# Huggingface cache (large model files, re-downloadable)
+.cache/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Streamlit
+.streamlit/
+
+# Environment files
+.env
+
+# Logs
+*.log

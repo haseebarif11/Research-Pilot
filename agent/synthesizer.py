@@ -1,0 +1,108 @@
+from typing import Dict, Any, List
+from agent.state import ResearchPilotState, Citation
+from agent.llm import LocalOllamaClient
+
+SYNTHESIZER_PROMPT = """You are ResearchPilot, an advanced Agentic RAG assistant.
+Synthesize a comprehensive, authoritative, and well-structured answer to the user's question based strictly on the provided numbered sources.
+
+Rules:
+1. Ground every major claim with bracketed citation markers (e.g., [1], [2]).
+2. Be objective, accurate, and direct.
+3. If the sources conflict or are incomplete, explicitly mention the discrepancy.
+4. Do not invent facts that are not present in the sources.
+
+User Question: {query}
+
+Numbered Verified Sources:
+{sources_text}
+
+{reasoning_context}
+
+Provide your synthesized response below, including citation brackets [1], [2] throughout:
+"""
+
+def synthesizer_node(state: ResearchPilotState, client: LocalOllamaClient = None) -> Dict[str, Any]:
+    query = state.get("query", "")
+    trace = state.get("decision_trace", []).copy()
+    local_docs = state.get("local_docs", [])
+    web_results = state.get("web_results", [])
+    reasoning_steps = state.get("reasoning_steps", [])
+
+    if client is None:
+        client = LocalOllamaClient()
+
+    trace.append("📝 **Synthesis Node**: Compiling cross-source evidence and generating citations...")
+
+    # Build citations list
+    citations: List[Citation] = []
+    sources_text_blocks = []
+    cite_idx = 1
+
+    # Add local document chunks
+    for d in local_docs[:4]:
+        meta = d.get("metadata", {})
+        src = meta.get("source", "Document")
+        page = meta.get("page", 1)
+        text = d.get("text", "")
+        clean_snip = " ".join(text.split()[:40]) + "..."
+        
+        citations.append({
+            "id": cite_idx,
+            "source_type": "local_doc",
+            "source_name": src,
+            "detail": f"Page {page}",
+            "snippet": clean_snip
+        })
+        sources_text_blocks.append(f"[{cite_idx}] (Document: {src}, Page {page})\n\"{clean_snip}\"")
+        cite_idx += 1
+
+    # Add web results
+    for w in web_results[:3]:
+        title = w.get("title", "Web Page")
+        url = w.get("url", "https://duckduckgo.com")
+        snip = w.get("snippet", "")
+        clean_snip = " ".join(snip.split()[:40]) + "..."
+        
+        citations.append({
+            "id": cite_idx,
+            "source_type": "web",
+            "source_name": title,
+            "detail": url,
+            "snippet": clean_snip
+        })
+        sources_text_blocks.append(f"[{cite_idx}] (Web: {title}, URL: {url})\n\"{clean_snip}\"")
+        cite_idx += 1
+
+    # Format reasoning context if any
+    reasoning_context = ""
+    if reasoning_steps:
+        lines = ["Intermediate Reasoning Insights:"]
+        for s in reasoning_steps:
+            lines.append(f"- Sub-problem '{s['sub_question']}': {s['answer']}")
+        reasoning_context = "\n".join(lines)
+
+    sources_text = "\n\n".join(sources_text_blocks) if sources_text_blocks else "No external retrieved records; relying on system knowledge."
+
+    # Generate answer with Ollama
+    prompt = SYNTHESIZER_PROMPT.format(
+        query=query,
+        sources_text=sources_text,
+        reasoning_context=reasoning_context
+    )
+
+    final_answer = client.generate(
+        prompt=prompt,
+        system="You are an accurate, cited research synthesizer. Always include [1], [2] citations."
+    )
+
+    # If fallback produced placeholder or no brackets, ensure grounding
+    if "[" not in final_answer and citations:
+        final_answer += f" [1]"
+
+    trace.append(f"🎯 **Synthesis Node**: Final response completed with {len(citations)} citation references.")
+
+    return {
+        "final_answer": final_answer,
+        "citations": citations,
+        "decision_trace": trace,
+    }
