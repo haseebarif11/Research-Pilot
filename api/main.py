@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from agent.graph import run_agent_query
-from agent.llm import LocalOllamaClient
+from agent.llm import LocalOllamaClient, OllamaUnavailableError
 from ingestion.chunker import DocumentChunker
 from ingestion.vector_store import ChromaVectorStore
 
@@ -19,7 +19,16 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:8501",
+        "http://127.0.0.1:8501",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -62,8 +71,14 @@ def health():
 def chat_endpoint(req: ChatRequest):
     if not req.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty.")
-    
-    result = run_agent_query(req.query, thread_id=req.thread_id)
+
+    try:
+        result = run_agent_query(req.query, thread_id=req.thread_id)
+    except OllamaUnavailableError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Local LLM not running — start Ollama to get real answers. ({e})"
+        )
     return ChatResponse(
         query=req.query,
         route=result.get("route", "hybrid"),
@@ -76,7 +91,24 @@ def chat_endpoint(req: ChatRequest):
 
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
-    target_path = UPLOAD_DIR / file.filename
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Filename missing.")
+
+    # Strip directory components
+    safe_filename = Path(file.filename).name
+
+    # Check for path traversal characters, directory separators, or null bytes
+    if not safe_filename or ".." in file.filename or "/" in file.filename or "\\" in file.filename or "\0" in file.filename:
+        raise HTTPException(status_code=400, detail="Invalid or unsafe filename.")
+
+    allowed_exts = {".pdf", ".docx", ".txt", ".md"}
+    if Path(safe_filename).suffix.lower() not in allowed_exts:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type. Allowed: {', '.join(allowed_exts)}")
+
+    target_path = (UPLOAD_DIR / safe_filename).resolve()
+    if not str(target_path).startswith(str(UPLOAD_DIR.resolve())):
+        raise HTTPException(status_code=400, detail="Path traversal detected.")
+
     try:
         with open(target_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
@@ -87,7 +119,7 @@ async def upload_file(file: UploadFile = File(...)):
         
         return {
             "status": "success",
-            "filename": file.filename,
+            "filename": safe_filename,
             "chunks_created": len(chunks),
             "chunks_indexed": num_added,
             "total_collection_chunks": vector_store.count()

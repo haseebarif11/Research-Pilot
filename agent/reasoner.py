@@ -29,22 +29,44 @@ Provide a concise, direct answer to this sub-question using the context. Keep it
 
 def reasoner_node(state: ResearchPilotState, client: LocalOllamaClient = None) -> Dict[str, Any]:
     query = state.get("query", "")
+    messages = state.get("messages", [])
     trace = state.get("decision_trace", []).copy()
     reasoning_steps = state.get("reasoning_steps", []).copy()
     local_docs = state.get("local_docs", [])
     web_results = state.get("web_results", [])
     sources_used = state.get("sources_used", []).copy()
+    iteration_count = state.get("iteration_count", 0) + 1
+
+    if iteration_count > 3:
+        trace.append("⚠️ **Reasoning Node**: Maximum reasoning loop iterations reached (cap=3); proceeding directly to synthesis.")
+        return {
+            "reasoning_steps": reasoning_steps,
+            "sources_used": sources_used,
+            "decision_trace": trace,
+            "iteration_count": iteration_count,
+        }
 
     if client is None:
         client = LocalOllamaClient()
 
     trace.append("🧠 **Reasoning Node**: Initiating multi-step query decomposition...")
 
+    # Include up to 4 prior turns as conversation context
+    history_turns = messages[:-1][-4:] if len(messages) > 1 else []
+    history_text = ""
+    if history_turns:
+        lines = ["Conversation history (most recent turns):"]
+        for m in history_turns:
+            role = m.get("role", "user").capitalize()
+            lines.append(f"  {role}: {m.get('content', '')[:200]}")
+        history_text = "\n".join(lines) + "\n\n"
+
     # Step 1: Decompose
     sub_questions = []
     try:
+        decompose_prompt = f"{history_text}{DECOMPOSE_PROMPT.format(query=query)}"
         raw_res = client.generate(
-            prompt=DECOMPOSE_PROMPT.format(query=query),
+            prompt=decompose_prompt,
             json_mode=True
         )
         json_match = re.search(r"\{.*\}", raw_res, re.DOTALL)
@@ -93,4 +115,5 @@ def reasoner_node(state: ResearchPilotState, client: LocalOllamaClient = None) -
         "reasoning_steps": reasoning_steps,
         "sources_used": sources_used,
         "decision_trace": trace,
+        "iteration_count": iteration_count,
     }

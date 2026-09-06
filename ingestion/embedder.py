@@ -1,5 +1,9 @@
 from typing import List
-import numpy as np
+
+
+class EmbeddingModelError(RuntimeError):
+    """Raised when the sentence-transformers model fails to load."""
+
 
 class LocalEmbedder:
     _instance = None
@@ -9,12 +13,8 @@ class LocalEmbedder:
         if cls._instance is None:
             cls._instance = super(LocalEmbedder, cls).__new__(cls)
             cls._instance.model_name = model_name
-            cls._instance._init_model()
+            cls._instance._model = None
         return cls._instance
-
-    def _init_model(self):
-        # Lazy load on first embed call
-        pass
 
     def _ensure_model(self):
         if self._model is None:
@@ -22,34 +22,31 @@ class LocalEmbedder:
                 from sentence_transformers import SentenceTransformer
                 self._model = SentenceTransformer(self.model_name)
             except Exception as e:
-                print(f"[LocalEmbedder] Warning: sentence-transformers not initialized ({e}).")
-                self._model = None
+                raise EmbeddingModelError(
+                    f"Failed to load embedding model '{self.model_name}': {e}. "
+                    "Ensure sentence-transformers is installed and the model can be downloaded."
+                ) from e
 
     def embed_texts(self, texts: List[str]) -> List[List[float]]:
         """
         Embed a list of strings into normalized vector embeddings.
+
+        Raises:
+            EmbeddingModelError: if the model cannot be loaded.
         """
         if not texts:
             return []
 
         self._ensure_model()
-        if self._model is not None:
-            embeddings = self._model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
-            return embeddings.tolist()
-        else:
-            # Deterministic fallback embedding for testing if model download is pending
-            dim = 384
-            res = []
-            for t in texts:
-                np.random.seed(abs(hash(t)) % (2**32))
-                vec = np.random.randn(dim).astype(np.float32)
-                vec /= np.linalg.norm(vec) + 1e-9
-                res.append(vec.tolist())
-            return res
+        embeddings = self._model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
+        return embeddings.tolist()
 
     def embed_query(self, query: str) -> List[float]:
         """
         Embed a single search query string.
+
+        Raises:
+            EmbeddingModelError: if the model cannot be loaded.
         """
         results = self.embed_texts([query])
         return results[0] if results else []

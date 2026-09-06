@@ -36,3 +36,9 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Pytest / Testing
+.pytest_cache/
+
+# Archives
+*.zip

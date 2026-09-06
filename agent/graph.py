@@ -25,7 +25,6 @@ def route_after_retriever(state: ResearchPilotState) -> Literal["web_search", "r
     
     # Dynamic fallback: if local_retrieval was requested but yielded no chunks, fall back to web search
     if route == "local_retrieval" and not local_docs:
-        state["decision_trace"].append("🔄 **Dynamic Fallback**: Local docs did not contain sufficient matches. Escalating to web search...")
         return "web_search"
 
     if route == "reasoning":
@@ -37,7 +36,8 @@ def route_after_retriever(state: ResearchPilotState) -> Literal["web_search", "r
 
 def route_after_web_search(state: ResearchPilotState) -> Literal["reasoner", "synthesizer"]:
     route = state.get("route", "hybrid")
-    if route == "reasoning":
+    iteration_count = state.get("iteration_count", 0)
+    if route == "reasoning" and iteration_count < 3:
         return "reasoner"
     return "synthesizer"
 
@@ -101,24 +101,56 @@ def get_agent_app():
 
 def run_agent_query(query: str, thread_id: str = "default_session") -> ResearchPilotState:
     """
-    Convenient helper to invoke the graph and return the final state.
+    Invoke the graph and return the final state.
+
+    For a brand-new thread_id a full initial state is created.
+    For an existing thread_id the persisted checkpoint is resumed: only the
+    new user message is added so that prior conversation history is preserved.
     """
     app = get_agent_app()
-    initial_state: ResearchPilotState = {
-        "query": query,
-        "messages": [{"role": "user", "content": query}],
-        "route": "",
-        "route_reasoning": "",
-        "local_docs": [],
-        "web_results": [],
-        "reasoning_steps": [],
-        "decision_trace": [],
-        "final_answer": "",
-        "citations": [],
-        "sources_used": [],
-        "iteration_count": 0
-    }
-
     config = {"configurable": {"thread_id": thread_id}}
-    result_state = app.invoke(initial_state, config=config)
+
+    # Check whether a checkpoint already exists for this thread
+    existing = app.get_state(config)
+    if existing and existing.values:
+        # Thread exists — build on top of the persisted state.
+        # Pull the accumulated messages list from the checkpoint and append
+        # the new user turn; reset per-turn working fields so the graph
+        # starts fresh for this question.
+        prior_messages: list = list(existing.values.get("messages", []))
+        prior_messages.append({"role": "user", "content": query})
+        delta_state: ResearchPilotState = {
+            "query": query,
+            "messages": prior_messages,
+            "route": "",
+            "route_reasoning": "",
+            "local_docs": [],
+            "web_results": [],
+            "reasoning_steps": [],
+            "decision_trace": [],
+            "final_answer": "",
+            "citations": [],
+            "sources_used": [],
+            "iteration_count": 0,
+        }
+        result_state = app.invoke(delta_state, config=config)
+    else:
+        # First turn — create the full initial state.
+        initial_state: ResearchPilotState = {
+            "query": query,
+            "messages": [{"role": "user", "content": query}],
+            "route": "",
+            "route_reasoning": "",
+            "local_docs": [],
+            "web_results": [],
+            "reasoning_steps": [],
+            "decision_trace": [],
+            "final_answer": "",
+            "citations": [],
+            "sources_used": [],
+            "iteration_count": 0,
+        }
+        result_state = app.invoke(initial_state, config=config)
+
     return result_state
+

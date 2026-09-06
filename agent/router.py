@@ -24,12 +24,27 @@ Return ONLY a JSON object with this exact structure:
 
 def router_node(state: ResearchPilotState, client: LocalOllamaClient = None) -> Dict[str, Any]:
     query = state.get("query", "")
+    messages = state.get("messages", [])
     trace = state.get("decision_trace", []).copy()
     
     if client is None:
         client = LocalOllamaClient()
 
-    prompt = f"User Question: {query}\n\nClassify this query and provide the JSON routing decision."
+    # Include up to 4 prior turns as conversation context (excluding the current user message)
+    history_turns = messages[:-1][-4:] if len(messages) > 1 else []
+    history_text = ""
+    if history_turns:
+        lines = ["Conversation history (most recent turns):"]
+        for m in history_turns:
+            role = m.get("role", "user").capitalize()
+            lines.append(f"  {role}: {m.get('content', '')[:200]}")
+        history_text = "\n".join(lines) + "\n\n"
+
+    prompt = (
+        f"{history_text}"
+        f"User Question: {query}\n\n"
+        "Classify this query and provide the JSON routing decision."
+    )
 
     try:
         response_text = client.generate(prompt=prompt, system=ROUTER_SYSTEM_PROMPT, json_mode=True)
@@ -65,3 +80,4 @@ def router_node(state: ResearchPilotState, client: LocalOllamaClient = None) -> 
         "route_reasoning": reason,
         "decision_trace": trace,
     }
+

@@ -1,6 +1,7 @@
 from typing import Dict, Any, List
 from agent.state import ResearchPilotState
 
+
 def web_search_node(state: ResearchPilotState, max_results: int = 4) -> Dict[str, Any]:
     query = state.get("query", "")
     trace = state.get("decision_trace", []).copy()
@@ -14,11 +15,7 @@ def web_search_node(state: ResearchPilotState, max_results: int = 4) -> Dict[str
 
     found_results = []
     try:
-        try:
-            from ddgs import DDGS
-        except ImportError:
-            from duckduckgo_search import DDGS
-
+        from ddgs import DDGS
         ddgs = DDGS()
         results = list(ddgs.text(clean_query, max_results=max_results))
         for r in results:
@@ -27,13 +24,26 @@ def web_search_node(state: ResearchPilotState, max_results: int = 4) -> Dict[str
                 "url": r.get("href", ""),
                 "snippet": r.get("body", "")
             })
+    except ImportError as e:
+        trace.append(
+            f"⚠️ **Web Search Node**: `ddgs` package not installed — install it with "
+            f"`pip install ddgs`. No web results available. ({e})"
+        )
+        return {
+            "web_results": web_results,
+            "sources_used": sources_used,
+            "decision_trace": trace,
+        }
     except Exception as e:
-        trace.append(f"⚠️ **Web Search Node**: DuckDuckGo search notice: {str(e)[:100]}. Using cached/curated web context.")
-        found_results.append({
-            "title": "Open Source AI & Agentic RAG Overview",
-            "url": "https://en.wikipedia.org/wiki/Retrieval-augmented_generation",
-            "snippet": "Retrieval-augmented generation (RAG) combines search retrieval with generative AI models to provide verified, grounded answers."
-        })
+        trace.append(
+            f"⚠️ **Web Search Node**: DuckDuckGo search failed — {str(e)[:120]}. "
+            f"No web results available for this query."
+        )
+        return {
+            "web_results": web_results,
+            "sources_used": sources_used,
+            "decision_trace": trace,
+        }
 
     if found_results:
         source_label = "DuckDuckGo Web Search"

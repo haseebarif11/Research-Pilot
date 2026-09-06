@@ -4,6 +4,7 @@ from ingestion.vector_store import ChromaVectorStore
 
 def retriever_node(state: ResearchPilotState, store: ChromaVectorStore = None) -> Dict[str, Any]:
     query = state.get("query", "")
+    route = state.get("route", "hybrid")
     trace = state.get("decision_trace", []).copy()
     local_docs = state.get("local_docs", []).copy()
     sources_used = state.get("sources_used", []).copy()
@@ -11,8 +12,8 @@ def retriever_node(state: ResearchPilotState, store: ChromaVectorStore = None) -
     if store is None:
         store = ChromaVectorStore()
 
-    # Search ChromaDB
-    hits = store.query(query_text=query, n_results=4, score_threshold=0.55)
+    # Search ChromaDB (score_threshold aligned with benchmark metric 0.45)
+    hits = store.query(query_text=query, n_results=4, score_threshold=0.45)
 
     if hits:
         top_score = hits[0]["score"]
@@ -33,6 +34,9 @@ def retriever_node(state: ResearchPilotState, store: ChromaVectorStore = None) -
             trace.append("ℹ️ **Retrieval Node**: No documents currently indexed in ChromaDB knowledge base.")
         else:
             trace.append(f"⚠️ **Retrieval Node**: Low semantic match in {doc_count} local chunks; triggering web search expansion.")
+        
+        if route == "local_retrieval":
+            trace.append("🔄 **Dynamic Fallback**: Local docs did not contain sufficient matches. Escalating to web search...")
 
     return {
         "local_docs": local_docs,

@@ -11,7 +11,7 @@ Rules:
 3. If the sources conflict or are incomplete, explicitly mention the discrepancy.
 4. Do not invent facts that are not present in the sources.
 
-User Question: {query}
+{conversation_context}User Question: {query}
 
 Numbered Verified Sources:
 {sources_text}
@@ -23,6 +23,7 @@ Provide your synthesized response below, including citation brackets [1], [2] th
 
 def synthesizer_node(state: ResearchPilotState, client: LocalOllamaClient = None) -> Dict[str, Any]:
     query = state.get("query", "")
+    messages = state.get("messages", [])
     trace = state.get("decision_trace", []).copy()
     local_docs = state.get("local_docs", [])
     web_results = state.get("web_results", [])
@@ -32,6 +33,16 @@ def synthesizer_node(state: ResearchPilotState, client: LocalOllamaClient = None
         client = LocalOllamaClient()
 
     trace.append("📝 **Synthesis Node**: Compiling cross-source evidence and generating citations...")
+
+    # Include up to 4 prior turns as conversation context
+    history_turns = messages[:-1][-4:] if len(messages) > 1 else []
+    conversation_context = ""
+    if history_turns:
+        lines = ["Conversation History:"]
+        for m in history_turns:
+            role = m.get("role", "user").capitalize()
+            lines.append(f"  {role}: {m.get('content', '')[:300]}")
+        conversation_context = "\n".join(lines) + "\n\n"
 
     # Build citations list
     citations: List[Citation] = []
@@ -85,6 +96,7 @@ def synthesizer_node(state: ResearchPilotState, client: LocalOllamaClient = None
 
     # Generate answer with Ollama
     prompt = SYNTHESIZER_PROMPT.format(
+        conversation_context=conversation_context,
         query=query,
         sources_text=sources_text,
         reasoning_context=reasoning_context
@@ -101,8 +113,11 @@ def synthesizer_node(state: ResearchPilotState, client: LocalOllamaClient = None
 
     trace.append(f"🎯 **Synthesis Node**: Final response completed with {len(citations)} citation references.")
 
+    updated_messages = list(messages) + [{"role": "assistant", "content": final_answer}]
+
     return {
         "final_answer": final_answer,
         "citations": citations,
         "decision_trace": trace,
+        "messages": updated_messages,
     }
