@@ -9,8 +9,9 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from agent.graph import run_agent_query
-from agent.llm import LocalOllamaClient
+from agent.llm import LocalOllamaClient, OllamaUnavailableError
 from ingestion.chunker import DocumentChunker
+from ingestion.embedder import EmbeddingModelError
 from ingestion.vector_store import ChromaVectorStore
 
 st.set_page_config(
@@ -171,18 +172,28 @@ with st.sidebar:
                 f.write(up.getbuffer())
             
             with st.spinner(f"Indexing {up.name}..."):
-                chunks = chunker.chunk_document(str(file_path))
-                added = vector_store.add_chunks(chunks)
-                st.success(f"Indexed {up.name} ({added} chunks)")
+                try:
+                    chunks = chunker.chunk_document(str(file_path))
+                    added = vector_store.add_chunks(chunks)
+                    st.success(f"Indexed {up.name} ({added} chunks)")
+                except OllamaUnavailableError as e:
+                    st.error(f"Ollama isn't running — start it with `ollama run llama3.1` ({e})")
+                except EmbeddingModelError as e:
+                    st.error(f"Embedding model failed to load — check your internet connection or sentence-transformers install ({e})")
 
     # Sample Document Button
     if st.button("📥 Load 2025 AI Research Sample Doc"):
         sample_path = ROOT_DIR / "sample_docs" / "ai_research_2025.md"
         if sample_path.exists():
-            chunks = chunker.chunk_document(str(sample_path))
-            vector_store.add_chunks(chunks)
-            st.success("Loaded sample research doc into ChromaDB!")
-            st.rerun()
+            try:
+                chunks = chunker.chunk_document(str(sample_path))
+                vector_store.add_chunks(chunks)
+                st.success("Loaded sample research doc into ChromaDB!")
+                st.rerun()
+            except OllamaUnavailableError as e:
+                st.error(f"Ollama isn't running — start it with `ollama run llama3.1` ({e})")
+            except EmbeddingModelError as e:
+                st.error(f"Embedding model failed to load — check your internet connection or sentence-transformers install ({e})")
 
     # Document list
     sources = vector_store.list_sources()
@@ -277,60 +288,74 @@ if prompt:
 
     # Process with Agentic RAG LangGraph
     with st.chat_message("assistant"):
+        result = None
+        error_msg = None
         with st.status("🧠 ResearchPilot Agent is thinking...", expanded=True) as status_box:
             status_box.write("1. 🧭 Routing intent (Local Docs vs Web Search vs Reasoning)...")
             
             # Run query
-            result = run_agent_query(prompt, thread_id="streamlit_user_session")
-            
-            route = result.get("route", "hybrid")
-            status_box.write(f"2. 🔀 Strategy determined: **{route.upper()}**")
-            
-            if result.get("local_docs"):
-                status_box.write(f"3. 📚 Retrieved {len(result['local_docs'])} local document chunks from ChromaDB.")
-            if result.get("web_results"):
-                status_box.write(f"4. 🌐 Searched DuckDuckGo and collected {len(result['web_results'])} live web sources.")
-            if result.get("reasoning_steps"):
-                status_box.write(f"5. 💡 Decomposed into {len(result['reasoning_steps'])} intermediate reasoning steps.")
+            try:
+                result = run_agent_query(prompt, thread_id="streamlit_user_session")
+            except OllamaUnavailableError as e:
+                status_box.update(label="❌ Ollama Service Error", state="error", expanded=False)
+                error_msg = f"Ollama isn't running — start it with `ollama run llama3.1` ({e})"
+            except EmbeddingModelError as e:
+                status_box.update(label="❌ Embedding Model Error", state="error", expanded=False)
+                error_msg = f"Embedding model failed to load — check your internet connection or sentence-transformers install ({e})"
+
+            if result:
+                route = result.get("route", "hybrid")
+                status_box.write(f"2. 🔀 Strategy determined: **{route.upper()}**")
                 
-            status_box.write("6. ✍️ Synthesizing grounded answer with citation footnotes...")
-            status_box.update(label="✅ Answer Synthesized!", state="complete", expanded=False)
+                if result.get("local_docs"):
+                    status_box.write(f"3. 📚 Retrieved {len(result['local_docs'])} local document chunks from ChromaDB.")
+                if result.get("web_results"):
+                    status_box.write(f"4. 🌐 Searched DuckDuckGo and collected {len(result['web_results'])} live web sources.")
+                if result.get("reasoning_steps"):
+                    status_box.write(f"5. 💡 Decomposed into {len(result['reasoning_steps'])} intermediate reasoning steps.")
+                    
+                status_box.write("6. ✍️ Synthesizing grounded answer with citation footnotes...")
+                status_box.update(label="✅ Answer Synthesized!", state="complete", expanded=False)
 
-        # Sources Used Badges
-        sources_used = result.get("sources_used", [])
-        if sources_used:
-            st.markdown("**Sources Consulted:**")
-            badges_html = "".join([f'<span class="source-tag">{s}</span>' for s in sources_used])
-            st.markdown(badges_html, unsafe_allow_html=True)
+        if error_msg:
+            st.error(error_msg)
 
-        # Decision Trace
-        trace = result.get("decision_trace", [])
-        if trace:
-            with st.expander("🔍 Agent Decision Trace & Execution Path", expanded=True):
-                for step in trace:
-                    st.markdown(step)
+        if result:
+            # Sources Used Badges
+            sources_used = result.get("sources_used", [])
+            if sources_used:
+                st.markdown("**Sources Consulted:**")
+                badges_html = "".join([f'<span class="source-tag">{s}</span>' for s in sources_used])
+                st.markdown(badges_html, unsafe_allow_html=True)
 
-        # Final Answer
-        final_ans = result.get("final_answer", "")
-        st.markdown(final_ans)
+            # Decision Trace
+            trace = result.get("decision_trace", [])
+            if trace:
+                with st.expander("🔍 Agent Decision Trace & Execution Path", expanded=True):
+                    for step in trace:
+                        st.markdown(step)
 
-        # Citations
-        citations = result.get("citations", [])
-        if citations:
-            with st.expander(f"📚 Grounded Citations ({len(citations)})", expanded=True):
-                for c in citations:
-                    st.markdown(f"""
-                    <div class="citation-card">
-                        <strong>[{c['id']}] {c['source_type'].upper()}: {c['source_name']}</strong> ({c['detail']})<br/>
-                        <em>"{c['snippet']}"</em>
-                    </div>
-                    """, unsafe_allow_html=True)
+            # Final Answer
+            final_ans = result.get("final_answer", "")
+            st.markdown(final_ans)
 
-        # Append assistant message to history
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": final_ans,
-            "sources_used": sources_used,
-            "decision_trace": trace,
-            "citations": citations
-        })
+            # Citations
+            citations = result.get("citations", [])
+            if citations:
+                with st.expander(f"📚 Grounded Citations ({len(citations)})", expanded=True):
+                    for c in citations:
+                        st.markdown(f"""
+                        <div class="citation-card">
+                            <strong>[{c['id']}] {c['source_type'].upper()}: {c['source_name']}</strong> ({c['detail']})<br/>
+                            <em>"{c['snippet']}"</em>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+            # Append assistant message to history
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": final_ans,
+                "sources_used": sources_used,
+                "decision_trace": trace,
+                "citations": citations
+            })

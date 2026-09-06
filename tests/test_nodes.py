@@ -11,6 +11,7 @@ from agent.reasoner import reasoner_node
 from agent.synthesizer import synthesizer_node
 from agent.graph import route_after_retriever, run_agent_query
 from agent.llm import LocalOllamaClient, OllamaUnavailableError
+from ingestion.embedder import EmbeddingModelError
 
 
 @pytest.fixture
@@ -230,3 +231,38 @@ def test_conversation_memory_accumulates_across_turns():
         assert turn2_state["messages"][0]["content"] == "Hello!"
         # Turn 2 user message is appended
         assert turn2_state["messages"][2]["content"] == "What was my first message?"
+
+
+def test_run_agent_query_raises_ollama_unavailable():
+    """Verify run_agent_query surfaces OllamaUnavailableError when synthesizer LLM fails."""
+    mock_router_resp = json.dumps({"route": "direct", "reasoning": "Greeting", "search_query": ""})
+    with patch("agent.router.LocalOllamaClient") as mock_router_cls, \
+         patch("agent.synthesizer.LocalOllamaClient") as mock_synth_cls:
+        mock_r = MagicMock()
+        mock_r.generate.return_value = mock_router_resp
+        mock_router_cls.return_value = mock_r
+
+        mock_s = MagicMock()
+        mock_s.generate.side_effect = OllamaUnavailableError("Local Ollama daemon is not running")
+        mock_synth_cls.return_value = mock_s
+
+        with pytest.raises(OllamaUnavailableError) as exc_info:
+            run_agent_query("Hello", thread_id="test_ollama_err_thread")
+
+        assert "Local Ollama daemon is not running" in str(exc_info.value)
+
+
+def test_retriever_node_raises_embedding_error(base_state):
+    """Verify retriever_node surfaces EmbeddingModelError when vector store embedding fails."""
+    with patch("agent.retriever.ChromaVectorStore") as mock_store_cls:
+        mock_store = MagicMock()
+        mock_store.query.side_effect = EmbeddingModelError("Failed to load all-MiniLM-L6-v2")
+        mock_store_cls.return_value = mock_store
+
+        with pytest.raises(EmbeddingModelError) as exc_info:
+            retriever_node(base_state)
+
+        assert "Failed to load all-MiniLM-L6-v2" in str(exc_info.value)
+
+
+
