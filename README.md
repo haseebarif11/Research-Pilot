@@ -145,5 +145,70 @@ python eval/benchmark.py
 ---
 
 ## 🔒 Privacy & Local Execution Guarantee
-- **100% Offline Capable**: Your documents and questions never leave your device.
-- **No Telemetry / No Paid Keys**: Embeddings and inference run locally on CPU/GPU.
+- **100% Offline Capable** (Ollama backend): Your documents and questions never leave your device.
+- **No Telemetry / No Paid Keys**: Embeddings and inference run locally on CPU/GPU with the Ollama backend.
+- **HF Inference backend**: Prompts are sent to the Hugging Face Inference API; no data is stored by HF beyond the request lifecycle.
+
+---
+
+## ☁️ Deploying to Hugging Face Spaces
+
+ResearchPilot can be deployed to [HF Spaces](https://huggingface.co/spaces) using the **Streamlit SDK** — no Docker required.
+
+### 1. Create the Space
+
+On HF, create a new Space with:
+- **SDK**: Streamlit
+- **App file**: `app.py` *(already at repo root — no changes needed)*
+
+Add the following front-matter to the Space's `README.md`:
+
+```yaml
+---
+title: ResearchPilot
+emoji: 🚀
+colorFrom: blue
+colorTo: purple
+sdk: streamlit
+sdk_version: "1.35.0"
+app_file: app.py
+pinned: false
+---
+```
+
+### 2. Set Space Secrets
+
+In your Space → **Settings → Variables and secrets**, add:
+
+| Secret name | Value | Required? |
+| :--- | :--- | :--- |
+| `LLM_BACKEND` | `hf_inference` | ✅ Yes |
+| `HF_TOKEN` | `hf_...` (your token) | ✅ Yes |
+| `HF_MODEL` | `meta-llama/Llama-3.2-3B-Instruct` | Optional (this is the default) |
+
+**Getting a free HF token** — no credit card required:
+1. Sign up at [huggingface.co](https://huggingface.co) (free).
+2. Go to [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
+3. Create a token with **Read** permissions.
+
+### 3. Supported Free Serverless Models
+
+Both models work with the free HF serverless tier (no billing, no model-card gating):
+
+| Model | Speed | Quality | `HF_MODEL` value |
+| :--- | :--- | :--- | :--- |
+| Llama 3.2 3B Instruct | ⚡ Fast | Good | `meta-llama/Llama-3.2-3B-Instruct` |
+| Qwen 2.5 7B Instruct | Medium | Higher | `Qwen/Qwen2.5-7B-Instruct` |
+
+### 4. Local Development with .env
+
+To test the HF backend locally without exporting env vars manually:
+
+```bash
+cp .env.example .env
+# Edit .env: set LLM_BACKEND=hf_inference and paste your HF_TOKEN
+streamlit run app.py
+```
+
+`python-dotenv` is included in `requirements.txt` and `app.py` auto-loads `.env` at startup.
+

@@ -2,7 +2,7 @@ import json
 import re
 from typing import Dict, Any, List
 from agent.state import ResearchPilotState, ReasoningStep
-from agent.llm import LocalOllamaClient
+from agent.llm import get_llm_client
 
 DECOMPOSE_PROMPT = """You are the Reasoning Node of ResearchPilot.
 Given a complex, comparative, or multi-step question, break it down into 2 to 3 atomic sub-questions that must be investigated in sequence to form a complete, well-reasoned answer.
@@ -27,7 +27,7 @@ Context available:
 Provide a concise, direct answer to this sub-question using the context. Keep it under 3 sentences.
 """
 
-def reasoner_node(state: ResearchPilotState, client: LocalOllamaClient = None) -> Dict[str, Any]:
+def reasoner_node(state: ResearchPilotState, client=None) -> Dict[str, Any]:
     query = state.get("query", "")
     messages = state.get("messages", [])
     trace = state.get("decision_trace", []).copy()
@@ -47,7 +47,7 @@ def reasoner_node(state: ResearchPilotState, client: LocalOllamaClient = None) -
         }
 
     if client is None:
-        client = LocalOllamaClient()
+        client = get_llm_client()
 
     trace.append("🧠 **Reasoning Node**: Initiating multi-step query decomposition...")
 

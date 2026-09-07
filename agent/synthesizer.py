@@ -1,6 +1,6 @@
 from typing import Dict, Any, List
 from agent.state import ResearchPilotState, Citation
-from agent.llm import LocalOllamaClient
+from agent.llm import get_llm_client
 
 SYNTHESIZER_PROMPT = """You are ResearchPilot, an advanced Agentic RAG assistant.
 Synthesize a comprehensive, authoritative, and well-structured answer to the user's question based strictly on the provided numbered sources.
@@ -21,7 +21,7 @@ Numbered Verified Sources:
 Provide your synthesized response below, including citation brackets [1], [2] throughout:
 """
 
-def synthesizer_node(state: ResearchPilotState, client: LocalOllamaClient = None) -> Dict[str, Any]:
+def synthesizer_node(state: ResearchPilotState, client=None) -> Dict[str, Any]:
     query = state.get("query", "")
     messages = state.get("messages", [])
     trace = state.get("decision_trace", []).copy()
@@ -30,7 +30,7 @@ def synthesizer_node(state: ResearchPilotState, client: LocalOllamaClient = None
     reasoning_steps = state.get("reasoning_steps", [])
 
     if client is None:
-        client = LocalOllamaClient()
+        client = get_llm_client()
 
     trace.append("📝 **Synthesis Node**: Compiling cross-source evidence and generating citations...")
 

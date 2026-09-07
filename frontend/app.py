@@ -9,7 +9,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from agent.graph import run_agent_query
-from agent.llm import LocalOllamaClient, OllamaUnavailableError
+from agent.llm import get_llm_client, OllamaUnavailableError, HFInferenceError
 from ingestion.chunker import DocumentChunker
 from ingestion.embedder import EmbeddingModelError
 from ingestion.vector_store import ChromaVectorStore
@@ -120,7 +120,7 @@ if "chunker" not in st.session_state:
     st.session_state.chunker = DocumentChunker()
 
 if "llm_client" not in st.session_state:
-    st.session_state.llm_client = LocalOllamaClient()
+    st.session_state.llm_client = get_llm_client()
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -138,18 +138,26 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("⚙️ Local Engine Status")
 
-    ollama_ready = llm_client.is_available()
-    if ollama_ready:
-        st.success("🟢 Ollama Daemon: Connected")
-        models = llm_client.list_installed_models()
-        if models:
-            selected_model = st.selectbox("Active Ollama Model", models, index=0)
-            os.environ["OLLAMA_MODEL"] = selected_model
-        else:
-            st.warning("No models found in Ollama. Pull one with `ollama pull llama3.1`.")
+    import os
+    backend = os.environ.get("LLM_BACKEND", "ollama").strip().lower()
+    if backend == "hf_inference":
+        hf_model = os.environ.get("HF_MODEL", "meta-llama/Llama-3.2-3B-Instruct")
+        st.success("🟢 HF Inference API: Connected")
+        st.caption(f"Model: `{hf_model}`")
+        st.caption("Running via Hugging Face serverless Inference API.")
     else:
-        st.info("🟡 Ollama: Offline (Local Heuristic Fallback Active)")
-        st.caption("To enable local Llama 3.1 inference, install Ollama and run `ollama pull llama3.1`.")
+        ollama_ready = llm_client.is_available()
+        if ollama_ready:
+            st.success("🟢 Ollama Daemon: Connected")
+            models = llm_client.list_installed_models()
+            if models:
+                selected_model = st.selectbox("Active Ollama Model", models, index=0)
+                os.environ["OLLAMA_MODEL"] = selected_model
+            else:
+                st.warning("No models found in Ollama. Pull one with `ollama pull llama3.1`.")
+        else:
+            st.info("🟡 Ollama: Offline (Local Heuristic Fallback Active)")
+            st.caption("To enable local Llama 3.1 inference, install Ollama and run `ollama pull llama3.1`.")
 
     doc_count = vector_store.count()
     st.markdown(f"**ChromaDB Knowledge Base**: `{doc_count}` chunks")
@@ -176,8 +184,8 @@ with st.sidebar:
                     chunks = chunker.chunk_document(str(file_path))
                     added = vector_store.add_chunks(chunks)
                     st.success(f"Indexed {up.name} ({added} chunks)")
-                except OllamaUnavailableError as e:
-                    st.error(f"Ollama isn't running — start it with `ollama run llama3.1` ({e})")
+                except (OllamaUnavailableError, HFInferenceError) as e:
+                    st.error(f"LLM backend error — check your LLM_BACKEND and credentials ({e})")
                 except EmbeddingModelError as e:
                     st.error(f"Embedding model failed to load — check your internet connection or sentence-transformers install ({e})")
 
@@ -190,8 +198,8 @@ with st.sidebar:
                 vector_store.add_chunks(chunks)
                 st.success("Loaded sample research doc into ChromaDB!")
                 st.rerun()
-            except OllamaUnavailableError as e:
-                st.error(f"Ollama isn't running — start it with `ollama run llama3.1` ({e})")
+            except (OllamaUnavailableError, HFInferenceError) as e:
+                st.error(f"LLM backend error — check your LLM_BACKEND and credentials ({e})")
             except EmbeddingModelError as e:
                 st.error(f"Embedding model failed to load — check your internet connection or sentence-transformers install ({e})")
 
@@ -296,9 +304,9 @@ if prompt:
             # Run query
             try:
                 result = run_agent_query(prompt, thread_id="streamlit_user_session")
-            except OllamaUnavailableError as e:
-                status_box.update(label="❌ Ollama Service Error", state="error", expanded=False)
-                error_msg = f"Ollama isn't running — start it with `ollama run llama3.1` ({e})"
+            except (OllamaUnavailableError, HFInferenceError) as e:
+                status_box.update(label="❌ LLM Backend Error", state="error", expanded=False)
+                error_msg = f"LLM backend error — check your LLM_BACKEND and credentials ({e})"
             except EmbeddingModelError as e:
                 status_box.update(label="❌ Embedding Model Error", state="error", expanded=False)
                 error_msg = f"Embedding model failed to load — check your internet connection or sentence-transformers install ({e})"

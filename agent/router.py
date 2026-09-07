@@ -2,7 +2,7 @@ import json
 import re
 from typing import Dict, Any
 from agent.state import ResearchPilotState
-from agent.llm import LocalOllamaClient
+from agent.llm import get_llm_client
 
 ROUTER_SYSTEM_PROMPT = """You are the expert Router Node of ResearchPilot, an autonomous Agentic RAG system.
 Your job is to analyze the user's question and decide the best execution strategy.
@@ -22,13 +22,13 @@ Return ONLY a JSON object with this exact structure:
 }
 """
 
-def router_node(state: ResearchPilotState, client: LocalOllamaClient = None) -> Dict[str, Any]:
+def router_node(state: ResearchPilotState, client=None) -> Dict[str, Any]:
     query = state.get("query", "")
     messages = state.get("messages", [])
     trace = state.get("decision_trace", []).copy()
-    
+
     if client is None:
-        client = LocalOllamaClient()
+        client = get_llm_client()
 
     # Include up to 4 prior turns as conversation context (excluding the current user message)
     history_turns = messages[:-1][-4:] if len(messages) > 1 else []

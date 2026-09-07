@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from agent.graph import run_agent_query
-from agent.llm import LocalOllamaClient, OllamaUnavailableError
+from agent.llm import get_llm_client, OllamaUnavailableError, HFInferenceError
 from ingestion.chunker import DocumentChunker
 from ingestion.vector_store import ChromaVectorStore
 
@@ -39,7 +39,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 vector_store = ChromaVectorStore()
 chunker = DocumentChunker(chunk_size=600, chunk_overlap=100)
-llm_client = LocalOllamaClient()
+llm_client = get_llm_client()
 
 class ChatRequest(BaseModel):
     query: str
@@ -74,10 +74,10 @@ def chat_endpoint(req: ChatRequest):
 
     try:
         result = run_agent_query(req.query, thread_id=req.thread_id)
-    except OllamaUnavailableError as e:
+    except (OllamaUnavailableError, HFInferenceError) as e:
         raise HTTPException(
             status_code=503,
-            detail=f"Local LLM not running — start Ollama to get real answers. ({e})"
+            detail=f"LLM backend unavailable — check your LLM_BACKEND configuration. ({e})"
         )
     return ChatResponse(
         query=req.query,

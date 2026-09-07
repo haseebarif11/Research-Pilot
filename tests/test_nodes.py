@@ -10,8 +10,21 @@ from agent.web_search import web_search_node
 from agent.reasoner import reasoner_node
 from agent.synthesizer import synthesizer_node
 from agent.graph import route_after_retriever, run_agent_query
-from agent.llm import LocalOllamaClient, OllamaUnavailableError
+from agent.llm import LocalOllamaClient, OllamaUnavailableError, HFInferenceError
+import agent.llm as _agent_llm
 from ingestion.embedder import EmbeddingModelError
+
+
+@pytest.fixture(autouse=True)
+def reset_llm_singleton():
+    """Reset the get_llm_client() singleton before and after every test.
+
+    Without this, a mocked client created in one test would persist in
+    agent.llm._client_singleton and silently leak into the next test.
+    """
+    _agent_llm._client_singleton = None
+    yield
+    _agent_llm._client_singleton = None
 
 
 @pytest.fixture
@@ -207,16 +220,17 @@ def test_conversation_memory_accumulates_across_turns():
     mock_router_resp = json.dumps({"route": "direct", "reasoning": "Greeting", "search_query": ""})
     mock_synth_resp = "Hello! I am ResearchPilot [1]."
 
-    with patch("agent.router.LocalOllamaClient") as mock_router_client_cls, \
-         patch("agent.synthesizer.LocalOllamaClient") as mock_synth_client_cls:
-        
-        mock_r_inst = MagicMock()
-        mock_r_inst.generate.return_value = mock_router_resp
-        mock_router_client_cls.return_value = mock_r_inst
+    # Patch the factory function in each module that calls it at node-dispatch time.
+    # The nodes call get_llm_client() when client=None; patching the name in their
+    # local namespace makes the factory return our mock instead.
+    mock_router_inst = MagicMock()
+    mock_router_inst.generate.return_value = mock_router_resp
 
-        mock_s_inst = MagicMock()
-        mock_s_inst.generate.return_value = mock_synth_resp
-        mock_synth_client_cls.return_value = mock_s_inst
+    mock_synth_inst = MagicMock()
+    mock_synth_inst.generate.return_value = mock_synth_resp
+
+    with patch("agent.router.get_llm_client", return_value=mock_router_inst), \
+         patch("agent.synthesizer.get_llm_client", return_value=mock_synth_inst):
 
         # Turn 1
         turn1_state = run_agent_query("Hello!", thread_id=thread_id)
@@ -236,15 +250,15 @@ def test_conversation_memory_accumulates_across_turns():
 def test_run_agent_query_raises_ollama_unavailable():
     """Verify run_agent_query surfaces OllamaUnavailableError when synthesizer LLM fails."""
     mock_router_resp = json.dumps({"route": "direct", "reasoning": "Greeting", "search_query": ""})
-    with patch("agent.router.LocalOllamaClient") as mock_router_cls, \
-         patch("agent.synthesizer.LocalOllamaClient") as mock_synth_cls:
-        mock_r = MagicMock()
-        mock_r.generate.return_value = mock_router_resp
-        mock_router_cls.return_value = mock_r
 
-        mock_s = MagicMock()
-        mock_s.generate.side_effect = OllamaUnavailableError("Local Ollama daemon is not running")
-        mock_synth_cls.return_value = mock_s
+    mock_r = MagicMock()
+    mock_r.generate.return_value = mock_router_resp
+
+    mock_s = MagicMock()
+    mock_s.generate.side_effect = OllamaUnavailableError("Local Ollama daemon is not running")
+
+    with patch("agent.router.get_llm_client", return_value=mock_r), \
+         patch("agent.synthesizer.get_llm_client", return_value=mock_s):
 
         with pytest.raises(OllamaUnavailableError) as exc_info:
             run_agent_query("Hello", thread_id="test_ollama_err_thread")
