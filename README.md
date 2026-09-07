@@ -197,8 +197,8 @@ Both models work with the free HF serverless tier (no billing, no model-card gat
 
 | Model | Speed | Quality | `HF_MODEL` value |
 | :--- | :--- | :--- | :--- |
+| Qwen 2.5 7B Instruct | Medium | Higher | `Qwen/Qwen2.5-7B-Instruct` ← **default** |
 | Llama 3.2 3B Instruct | ⚡ Fast | Good | `meta-llama/Llama-3.2-3B-Instruct` |
-| Qwen 2.5 7B Instruct | Medium | Higher | `Qwen/Qwen2.5-7B-Instruct` |
 
 ### 4. Local Development with .env
 

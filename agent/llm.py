@@ -112,7 +112,7 @@ class LocalOllamaClient:
 # Hugging Face Inference API backend
 # ---------------------------------------------------------------------------
 
-_DEFAULT_HF_MODEL = "meta-llama/Llama-3.2-3B-Instruct"
+_DEFAULT_HF_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 
 class HFInferenceClient:
     """
@@ -126,7 +126,7 @@ class HFInferenceClient:
 
     Environment variables:
         HF_TOKEN  — required; free token from https://huggingface.co/settings/tokens
-        HF_MODEL  — optional; defaults to meta-llama/Llama-3.2-3B-Instruct
+        HF_MODEL  — optional; defaults to Qwen/Qwen2.5-7B-Instruct
     """
 
     def __init__(self):
