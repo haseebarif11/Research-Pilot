@@ -1,3 +1,14 @@
+---
+title: ResearchPilot
+emoji: 🚀
+colorFrom: blue
+colorTo: purple
+sdk: streamlit
+sdk_version: "1.35.0"
+app_file: app.py
+pinned: false
+---
+
 # 🚀 ResearchPilot: 100% Local, Free, Open-Source Agentic RAG
 
 > **Zero paid APIs. Zero account signups. Zero credit cards required.**  
