@@ -15,7 +15,7 @@ def web_search_node(state: ResearchPilotState, max_results: int = 4) -> Dict[str
 
     found_results = []
     try:
-        from ddgs import DDGS
+        from duckduckgo_search import DDGS
         ddgs = DDGS()
         results = list(ddgs.text(clean_query, max_results=max_results))
         for r in results:
@@ -26,8 +26,8 @@ def web_search_node(state: ResearchPilotState, max_results: int = 4) -> Dict[str
             })
     except ImportError as e:
         trace.append(
-            f"⚠️ **Web Search Node**: `ddgs` package not installed — install it with "
-            f"`pip install ddgs`. No web results available. ({e})"
+            f"⚠️ **Web Search Node**: `duckduckgo-search` package not installed — install it with "
+            f"`pip install duckduckgo-search`. No web results available. ({e})"
         )
         return {
             "web_results": web_results,
