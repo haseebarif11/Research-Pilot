@@ -1,21 +1,23 @@
+# Use PyTorch CPU-only wheels (much smaller, ~200MB vs ~2GB GPU version)
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 # Core agent framework
 langgraph>=0.2.0
 
-# Vector database - pin to stable pre-refactor version
+# Embeddings — CPU-only torch keeps install under Streamlit Cloud limits
+sentence-transformers>=2.7.0,<4.0.0
+torch>=2.0.0+cpu
+
+# Vector database
 chromadb>=0.4.24,<0.6.0
 
-# Embeddings (sentence-transformers requires torch and numpy)
-sentence-transformers>=2.7.0,<4.0.0
-torch>=2.0.0
-numpy>=1.24.0
-
-# Web search - correct package name (NOT 'ddgs')
+# Web search
 duckduckgo-search>=6.0.0
 
 # Frontend
 streamlit>=1.35.0
 
-# Backend API (optional, not needed for Streamlit-only deploy)
+# Backend API
 fastapi>=0.111.0
 uvicorn>=0.30.0
 pydantic>=2.7.0
