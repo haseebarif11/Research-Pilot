@@ -7,6 +7,7 @@ sdk: streamlit
 sdk_version: "1.35.0"
 app_file: app.py
 pinned: false
+hardware: cpu-basic
 ---
 
 # 🚀 ResearchPilot: 100% Local, Free, Open-Source Agentic RAG
