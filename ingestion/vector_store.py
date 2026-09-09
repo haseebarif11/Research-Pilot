@@ -15,13 +15,15 @@ class ChromaVectorStore:
     def _init_db(self):
         try:
             import chromadb
-            from chromadb.config import Settings
             from ingestion.embedder import LocalEmbedder
 
             self._embedder = LocalEmbedder()
             self._client = chromadb.PersistentClient(path=self.persist_dir)
+            # Pass embedding_function=None because we supply our own embeddings;
+            # this prevents chromadb 0.5+ from downloading its default ONNX model.
             self._collection = self._client.get_or_create_collection(
                 name=self.collection_name,
+                embedding_function=None,
                 metadata={"hnsw:space": "cosine"}
             )
         except Exception as e:

@@ -4,15 +4,13 @@
 # Core agent framework
 langgraph>=0.2.0
 
-# Embeddings — CPU-only torch keeps install under Streamlit Cloud limits
-sentence-transformers>=2.7.0,<4.0.0
+# Embeddings — CPU-only torch (~190 MB vs ~2 GB GPU)
 torch==2.2.2+cpu
-torchvision==0.17.2+cpu
+sentence-transformers>=2.7.0,<4.0.0
 
 # Vector database
-# chromadb 0.5+ requires onnxruntime which fails to build on Streamlit Cloud;
-# pin to last pre-onnxruntime release.
-chromadb>=0.4.24,<0.5.0
+# chromadb 0.5+ uses onnxruntime (prebuilt wheels for all platforms, no C++ compilation needed)
+chromadb>=0.5.0,<0.6.0
 
 # Web search
 duckduckgo-search>=6.0.0
@@ -34,6 +32,3 @@ tabulate>=0.9.0
 requests>=2.31.0
 huggingface_hub>=0.23.0
 python-dotenv>=1.0.0
-
-# Testing
-pytest>=8.0.0
