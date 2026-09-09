@@ -160,7 +160,7 @@ with st.sidebar:
             st.caption("To enable local Llama 3.1 inference, install Ollama and run `ollama pull llama3.1`.")
 
     doc_count = vector_store.count()
-    st.markdown(f"**ChromaDB Knowledge Base**: `{doc_count}` chunks")
+    st.markdown(f"**Vector Knowledge Base**: `{doc_count}` chunks")
 
     st.markdown("---")
     st.subheader("📁 Ingest Documents")
@@ -230,7 +230,7 @@ st.markdown("""
         <span class="pill-badge pill-badge-green">✔ $0 Cost (100% Free)</span>
         <span class="pill-badge">✔ Zero API Keys</span>
         <span class="pill-badge">✔ LangGraph Agent</span>
-        <span class="pill-badge">✔ ChromaDB Local</span>
+        <span class="pill-badge">✔ Numpy Vector Store</span>
         <span class="pill-badge">✔ DuckDuckGo Search</span>
         <span class="pill-badge">✔ Local Ollama LLM</span>
     </div>

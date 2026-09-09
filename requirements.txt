@@ -1,16 +1,14 @@
-# CPU-only PyTorch wheels (avoids ~2 GB GPU download on Streamlit Cloud)
---extra-index-url https://download.pytorch.org/whl/cpu
-
 # Core agent framework
 langgraph>=0.2.0
 
-# Embeddings — CPU-only torch (~190 MB vs ~2 GB GPU)
-torch==2.2.2+cpu
-sentence-transformers>=2.7.0,<4.0.0
+# Embeddings via ONNX Runtime — no torch, no Rust-compiled tokenizers
+# fastembed has prebuilt wheels for all Python versions including 3.14
+fastembed>=0.3.6
 
-# Vector database
-# chromadb 0.5+ uses onnxruntime (prebuilt wheels for all platforms, no C++ compilation needed)
-chromadb>=0.5.0,<0.6.0
+# Vector store — replaced chromadb with numpy-based store (see ingestion/vector_store.py)
+# chromadb 0.5.x requires tokenizers<=0.20.3 which has no Python 3.14 wheel
+# and its Rust build fails (PyO3 max is Python 3.13). numpy is provided by streamlit/pandas.
+numpy>=1.22.5
 
 # Web search
 duckduckgo-search>=6.0.0
