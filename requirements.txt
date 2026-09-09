@@ -1,4 +1,4 @@
-# Use PyTorch CPU-only wheels (much smaller, ~200MB vs ~2GB GPU version)
+# CPU-only PyTorch wheels (avoids ~2 GB GPU download on Streamlit Cloud)
 --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Core agent framework
@@ -6,10 +6,13 @@ langgraph>=0.2.0
 
 # Embeddings — CPU-only torch keeps install under Streamlit Cloud limits
 sentence-transformers>=2.7.0,<4.0.0
-torch>=2.0.0+cpu
+torch==2.2.2+cpu
+torchvision==0.17.2+cpu
 
 # Vector database
-chromadb>=0.4.24,<0.6.0
+# chromadb 0.5+ requires onnxruntime which fails to build on Streamlit Cloud;
+# pin to last pre-onnxruntime release.
+chromadb>=0.4.24,<0.5.0
 
 # Web search
 duckduckgo-search>=6.0.0
