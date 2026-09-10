@@ -4,17 +4,28 @@ from pathlib import Path
 import streamlit as st
 
 # ── Streamlit Cloud secrets → os.environ bridge ──────────────────────────────
-# On Streamlit Cloud, secrets set in the dashboard live only in st.secrets and
-# are NOT automatically injected into os.environ.  Agent modules (agent/llm.py
-# etc.) read LLM_BACKEND and HF_TOKEN via os.getenv(), so we must copy them
-# over before those modules are imported.  The try/except makes local dev safe:
-# when no secrets.toml exists python-dotenv has already populated os.environ.
+# On Streamlit Cloud, secrets set in the dashboard live in st.secrets.
+# We recursively extract all secrets and normalize common keys into os.environ.
 try:
-    for _key, _val in st.secrets.items():
-        if _key not in os.environ:
-            os.environ[_key] = str(_val)
+    def _extract_secrets(mapping):
+        for k, v in mapping.items():
+            if isinstance(v, dict) or hasattr(v, "items"):
+                _extract_secrets(v)
+            else:
+                os.environ.setdefault(str(k), str(v))
+                upper_k = str(k).upper()
+                if upper_k in ("HF_TOKEN", "HUGGINGFACE_API_KEY", "HUGGING_FACE_HUB_TOKEN", "LLM_BACKEND", "HF_MODEL"):
+                    os.environ[upper_k] = str(v)
+    _extract_secrets(st.secrets)
 except Exception:
-    pass  # No secrets file — rely on os.environ set by python-dotenv / shell
+    pass
+
+# Auto-select hf_inference backend if an HF token is available and no backend was specified
+if not os.environ.get("LLM_BACKEND"):
+    for _token_key in ("HF_TOKEN", "HUGGINGFACE_API_KEY", "HUGGING_FACE_HUB_TOKEN"):
+        if os.environ.get(_token_key):
+            os.environ["LLM_BACKEND"] = "hf_inference"
+            break
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Ensure project root is in sys.path
@@ -23,10 +34,11 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from agent.graph import run_agent_query
-from agent.llm import get_llm_client, OllamaUnavailableError, HFInferenceError
+from agent.llm import get_llm_client, reset_llm_client, LocalOllamaClient, OllamaUnavailableError, HFInferenceError
 from ingestion.chunker import DocumentChunker
 from ingestion.embedder import EmbeddingModelError
 from ingestion.vector_store import ChromaVectorStore
+
 
 st.set_page_config(
     page_title="ResearchPilot | 100% Free Local Agentic RAG",
@@ -243,37 +255,95 @@ def main():
         st.caption("100% Free & Local Agentic RAG")
 
         st.markdown("---")
-        st.subheader("⚙️ Local Engine Status")
+        st.subheader("⚙️ LLM Engine Settings")
 
-        backend = os.environ.get("LLM_BACKEND", "ollama").strip().lower()
-        if backend == "hf_inference":
-            hf_model = os.environ.get("HF_MODEL", "meta-llama/Llama-3.2-3B-Instruct")
-            st.success("🟢 HF Inference API: Connected")
-            st.caption(f"Model: `{hf_model}`")
-            st.caption("Running via Hugging Face serverless Inference API.")
+        ollama_probe = LocalOllamaClient()
+        ollama_is_up = ollama_probe.is_available()
+        hf_token_val = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_KEY") or ""
+
+        # Determine default provider
+        current_backend = os.environ.get("LLM_BACKEND", "").strip().lower()
+        if current_backend == "hf_inference":
+            provider_idx = 0
+        elif current_backend == "ollama":
+            provider_idx = 1
         else:
-            ollama_ready = llm_client.is_available()
-            if ollama_ready:
+            provider_idx = 1 if ollama_is_up else 0
+
+        provider_choice = st.radio(
+            "Inference Provider",
+            ["☁️ Hugging Face (Free Cloud API)", "💻 Local Ollama"],
+            index=provider_idx,
+            help="Hugging Face provides free serverless inference in the cloud. Ollama runs locally on your machine."
+        )
+
+        if "Hugging Face" in provider_choice:
+            os.environ["LLM_BACKEND"] = "hf_inference"
+
+            token_input = st.text_input(
+                "Hugging Face Token",
+                value=hf_token_val,
+                type="password",
+                placeholder="hf_xxxxxxxxxxxxxxxxxxxx",
+                help="Get a free token at https://huggingface.co/settings/tokens"
+            )
+            if token_input != hf_token_val:
+                os.environ["HF_TOKEN"] = token_input.strip()
+                reset_llm_client()
+                hf_token_val = token_input.strip()
+
+            hf_model_options = [
+                "Qwen/Qwen2.5-7B-Instruct",
+                "meta-llama/Llama-3.2-3B-Instruct",
+                "mistralai/Mistral-7B-Instruct-v0.3",
+            ]
+            saved_hf_model = os.environ.get("HF_MODEL", hf_model_options[0])
+            model_index = hf_model_options.index(saved_hf_model) if saved_hf_model in hf_model_options else 0
+            chosen_hf_model = st.selectbox("Active HF Model", hf_model_options, index=model_index)
+            os.environ["HF_MODEL"] = chosen_hf_model
+
+            if hf_token_val:
+                st.success("🟢 HF Inference API: Configured")
+            else:
+                st.warning("⚠️ Enter a free HF Token above (or in Secrets) to enable cloud inference.")
+
+            if st.button("⚡ Test Connection"):
+                with st.spinner("Pinging Hugging Face model..."):
+                    try:
+                        active_client = get_llm_client("hf_inference")
+                        if hasattr(active_client, "test_connection"):
+                            ok, msg = active_client.test_connection()
+                            if ok:
+                                st.success(f"✅ {msg}")
+                            else:
+                                st.error(f"❌ {msg}")
+                        else:
+                            st.info("Client initialized.")
+                    except Exception as e:
+                        st.error(f"❌ Test failed: {e}")
+
+        else:
+            os.environ["LLM_BACKEND"] = "ollama"
+            if ollama_is_up:
                 st.success("🟢 Ollama Daemon: Connected")
-                models = llm_client.list_installed_models()
-                if models:
-                    selected_model = st.selectbox("Active Ollama Model", models, index=0)
-                    os.environ["OLLAMA_MODEL"] = selected_model
+                installed_models = ollama_probe.list_installed_models()
+                if installed_models:
+                    sel_model = st.selectbox("Active Ollama Model", installed_models, index=0)
+                    os.environ["OLLAMA_MODEL"] = sel_model
                 else:
-                    st.warning("No models found in Ollama. Pull one with `ollama pull llama3.1`.")
+                    st.warning("No models found in Ollama. Pull one with: `ollama pull llama3.1`")
             else:
                 st.info("🟡 Ollama: Offline (Local Heuristic Fallback Active)")
-                st.caption("To enable local Llama 3.1 inference, install Ollama and run `ollama pull llama3.1`.")
+                st.caption("To run locally: install Ollama and execute `ollama run llama3.1`.")
+                if st.button("🔄 Re-check Ollama"):
+                    ollama_probe._available_cache = None
+                    reset_llm_client()
+                    st.rerun()
 
-        # 🐛 DEBUG — remove once confirmed working on Streamlit Cloud
-        try:
-            _secret_keys = list(st.secrets.keys())
-        except Exception:
-            _secret_keys = ["(st.secrets unavailable)"]
-        st.caption(
-            f"🔧 DEBUG — LLM_BACKEND: `{os.environ.get('LLM_BACKEND', '[not set]')}` | "
-            f"st.secrets keys: `{_secret_keys}`"
-        )
+        # Keep session state client updated
+        st.session_state.llm_client = get_llm_client()
+        llm_client = st.session_state.llm_client
+
 
         doc_count = vector_store.count()
         st.markdown(f"**Vector Knowledge Base**: `{doc_count}` chunks")

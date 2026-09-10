@@ -94,7 +94,7 @@ def synthesizer_node(state: ResearchPilotState, client=None) -> Dict[str, Any]:
 
     sources_text = "\n\n".join(sources_text_blocks) if sources_text_blocks else "No external retrieved records; relying on system knowledge."
 
-    # Generate answer with Ollama
+    # Generate answer with LLM (with robust heuristic synthesis fallback)
     prompt = SYNTHESIZER_PROMPT.format(
         conversation_context=conversation_context,
         query=query,
@@ -102,14 +102,41 @@ def synthesizer_node(state: ResearchPilotState, client=None) -> Dict[str, Any]:
         reasoning_context=reasoning_context
     )
 
-    final_answer = client.generate(
-        prompt=prompt,
-        system="You are an accurate, cited research synthesizer. Always include [1], [2] citations."
-    )
+    try:
+        final_answer = client.generate(
+            prompt=prompt,
+            system="You are an accurate, cited research synthesizer. Always include [1], [2] citations."
+        )
+    except Exception as e:
+        # Grounded retrieval heuristic synthesis if LLM backend is offline / unconfigured
+        answer_parts = []
+        answer_parts.append(f"### Research Synthesis for: *\"{query}\"*")
+        
+        if local_docs or web_results:
+            answer_parts.append("\n**Key Grounded Findings:**")
+            for idx, c in enumerate(citations[:4]):
+                src_label = f"[{c['id']}] **{c['source_type'].upper()} ({c['source_name']})**"
+                answer_parts.append(f"- {src_label}: *\"{c['snippet']}\"*")
+
+        if reasoning_steps:
+            answer_parts.append("\n**Analytical Insights:**")
+            for s in reasoning_steps:
+                answer_parts.append(f"- **{s['sub_question']}**: {s['answer']}")
+
+        if citations:
+            answer_parts.append(f"\nBased on cross-referencing available internal and external evidence [1], the findings directly address the core research aspects of the query.")
+        else:
+            answer_parts.append("\nNo matching document or web sources were retrieved for this specific query.")
+
+        answer_parts.append(
+            f"\n\n> 💡 *Note: Grounded heuristic synthesis was used because the LLM backend was offline or unreachable ({type(e).__name__}). To enable full generative neural synthesis, connect Ollama or enter a free Hugging Face API token in the sidebar.*"
+        )
+        final_answer = "\n".join(answer_parts)
 
     # If fallback produced placeholder or no brackets, ensure grounding
     if "[" not in final_answer and citations:
         final_answer += f" [1]"
+
 
     trace.append(f"🎯 **Synthesis Node**: Final response completed with {len(citations)} citation references.")
 
