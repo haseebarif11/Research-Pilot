@@ -317,10 +317,19 @@ def main():
                                 st.success(f"✅ {msg}")
                             else:
                                 st.error(f"❌ {msg}")
+                                if "403" in msg or "permission" in msg.lower():
+                                    st.warning(
+                                        "🔑 **Quick Fix for Token Permission (403):**\n\n"
+                                        "1. Open [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)\n"
+                                        "2. Click **Create new token**\n"
+                                        "3. Set Token type to **'Write'** *(or if Fine-grained: under **Inference**, check **'Make calls to Inference Providers'**)*\n"
+                                        "4. Paste the new token into the box above and re-test!"
+                                    )
                         else:
                             st.info("Client initialized.")
                     except Exception as e:
                         st.error(f"❌ Test failed: {e}")
+
 
         else:
             os.environ["LLM_BACKEND"] = "ollama"

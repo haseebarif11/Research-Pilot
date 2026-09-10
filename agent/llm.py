@@ -238,6 +238,7 @@ class HFInferenceClient:
 
         last_error = None
         for candidate in candidate_models:
+            # 1. Try chat_completion via Inference Providers router
             try:
                 response = client.chat_completion(
                     model=candidate,
@@ -248,16 +249,47 @@ class HFInferenceClient:
                 )
                 text = response.choices[0].message.content or ""
                 return text.strip()
-            except HFInferenceError:
-                raise
             except Exception as e:
                 last_error = e
-                # If error occurred with candidate, continue to next fallback model
-                continue
+
+            # 2. If router failed (e.g. 403 on Inference Providers), try classic serverless endpoint
+            try:
+                import requests
+                headers = {"Authorization": f"Bearer {self.token}"}
+                api_url = f"https://api-inference.huggingface.co/models/{candidate}"
+                full_prompt = f"{system}\n\nUser: {prompt}\nAssistant:" if system else prompt
+                r = requests.post(
+                    api_url,
+                    headers=headers,
+                    json={
+                        "inputs": full_prompt,
+                        "parameters": {"max_new_tokens": 1024, "temperature": 0.2, "return_full_text": False}
+                    },
+                    timeout=20
+                )
+                if r.status_code == 200:
+                    res_json = r.json()
+                    if isinstance(res_json, list) and len(res_json) > 0:
+                        gen_text = res_json[0].get("generated_text", "")
+                        if gen_text:
+                            return gen_text.strip()
+                    elif isinstance(res_json, dict) and "generated_text" in res_json:
+                        return res_json["generated_text"].strip()
+            except Exception:
+                pass
+
+        err_str = str(last_error)
+        if "403" in err_str and ("Inference Providers" in err_str or "permissions" in err_str or "Forbidden" in err_str):
+            raise HFInferenceError(
+                "403 Forbidden: Your Hugging Face token is missing the 'Make calls to Inference Providers' permission. "
+                "Fix: Go to https://huggingface.co/settings/tokens -> create or edit a token -> select type 'Write' "
+                "(or under Inference check 'Make calls to Inference Providers') -> paste new token."
+            ) from last_error
 
         raise HFInferenceError(
             f"Hugging Face Inference API call failed across models {candidate_models}: {last_error}"
         ) from last_error
+
 
 
 # ---------------------------------------------------------------------------
