@@ -114,8 +114,9 @@ class LocalOllamaClient:
 
 _DEFAULT_HF_MODELS = [
     "Qwen/Qwen2.5-7B-Instruct",
-    "meta-llama/Llama-3.2-3B-Instruct",
-    "mistralai/Mistral-7B-Instruct-v0.3",
+    "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+    "Qwen/Qwen2.5-Coder-7B-Instruct",
+    "meta-llama/Llama-3.1-8B-Instruct",
 ]
 _DEFAULT_HF_MODEL = _DEFAULT_HF_MODELS[0]
 
@@ -162,7 +163,7 @@ class HFInferenceClient:
     def token(self) -> str:
         return self._explicit_token or _resolve_hf_token()
 
-    def _get_client(self):
+    def _get_client(self, provider: Optional[str] = "hf-inference"):
         token = self.token
         if not token:
             raise HFInferenceError(
@@ -176,10 +177,10 @@ class HFInferenceClient:
                 "huggingface_hub is not installed. Run: pip install huggingface_hub>=0.23.0"
             ) from e
 
-        # Recreate client if token changed
-        if self._client is None or getattr(self._client, "token", None) != token:
-            self._client = InferenceClient(token=token)
-        return self._client
+        try:
+            return InferenceClient(token=token, provider=provider)
+        except (TypeError, ValueError):
+            return InferenceClient(token=token)
 
     # ------------------------------------------------------------------
     # Interface parity with LocalOllamaClient
@@ -216,13 +217,12 @@ class HFInferenceClient:
         """
         Generate a completion via the HF Inference API chat endpoint.
 
-        Uses the messages API (system + user roles) with automatic fallback
-        models if the primary model encounters a temporary provider error.
+        Tries the free serverless provider first, then router, with fallback
+        to classic text-generation endpoints if chat endpoint is not available.
 
         Raises:
             HFInferenceError: on auth failure, network error, or API error.
         """
-        client = self._get_client()
         primary_model = model or os.environ.get("HF_MODEL", self._model)
         
         # Build candidate models list: primary first, followed by defaults
@@ -236,23 +236,42 @@ class HFInferenceClient:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
-        last_error = None
+        errors_log = []
         for candidate in candidate_models:
-            # 1. Try chat_completion via Inference Providers router
-            try:
-                response = client.chat_completion(
-                    model=candidate,
-                    messages=messages,
-                    max_tokens=1024,
-                    temperature=0.2,
-                    top_p=0.9,
-                )
-                text = response.choices[0].message.content or ""
-                return text.strip()
-            except Exception as e:
-                last_error = e
+            # Attempt A: chat_completion with free serverless provider
+            for prov in ("hf-inference", None):
+                try:
+                    c = self._get_client(provider=prov)
+                    response = c.chat_completion(
+                        model=candidate,
+                        messages=messages,
+                        max_tokens=1024,
+                        temperature=0.2,
+                        top_p=0.9,
+                    )
+                    text = response.choices[0].message.content or ""
+                    if text.strip():
+                        return text.strip()
+                except Exception as e:
+                    errors_log.append(f"{candidate} ({prov or 'router'}): {e}")
 
-            # 2. If router failed (e.g. 403 on Inference Providers), try classic serverless endpoint
+            # Attempt B: text_generation fallback
+            try:
+                c = self._get_client(provider="hf-inference")
+                full_prompt = f"{system}\n\nUser: {prompt}\nAssistant:" if system else prompt
+                output = c.text_generation(
+                    full_prompt,
+                    model=candidate,
+                    max_new_tokens=1024,
+                    temperature=0.2,
+                    return_full_text=False,
+                )
+                if output and output.strip():
+                    return output.strip()
+            except Exception as e:
+                errors_log.append(f"{candidate} (text_gen): {e}")
+
+            # Attempt C: Direct classic serverless HTTP request
             try:
                 import requests
                 headers = {"Authorization": f"Bearer {self.token}"}
@@ -275,20 +294,24 @@ class HFInferenceClient:
                             return gen_text.strip()
                     elif isinstance(res_json, dict) and "generated_text" in res_json:
                         return res_json["generated_text"].strip()
-            except Exception:
-                pass
+            except Exception as e:
+                errors_log.append(f"{candidate} (direct_http): {e}")
 
-        err_str = str(last_error)
-        if "403" in err_str and ("Inference Providers" in err_str or "permissions" in err_str or "Forbidden" in err_str):
+        # Check for 403 permission error across logged errors
+        all_errs = " ".join(errors_log)
+        if "403" in all_errs and ("Inference Providers" in all_errs or "permissions" in all_errs or "Forbidden" in all_errs):
             raise HFInferenceError(
                 "403 Forbidden: Your Hugging Face token is missing the 'Make calls to Inference Providers' permission. "
                 "Fix: Go to https://huggingface.co/settings/tokens -> create or edit a token -> select type 'Write' "
                 "(or under Inference check 'Make calls to Inference Providers') -> paste new token."
-            ) from last_error
+            )
 
+        last_detail = errors_log[-1] if errors_log else "Unknown error"
         raise HFInferenceError(
-            f"Hugging Face Inference API call failed across models {candidate_models}: {last_error}"
-        ) from last_error
+            f"Hugging Face Inference API failed across models {candidate_models}.\n"
+            f"Details: {last_detail}"
+        )
+
 
 
 

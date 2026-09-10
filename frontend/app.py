@@ -294,13 +294,15 @@ def main():
 
             hf_model_options = [
                 "Qwen/Qwen2.5-7B-Instruct",
-                "meta-llama/Llama-3.2-3B-Instruct",
-                "mistralai/Mistral-7B-Instruct-v0.3",
+                "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+                "Qwen/Qwen2.5-Coder-7B-Instruct",
+                "meta-llama/Llama-3.1-8B-Instruct",
             ]
             saved_hf_model = os.environ.get("HF_MODEL", hf_model_options[0])
             model_index = hf_model_options.index(saved_hf_model) if saved_hf_model in hf_model_options else 0
             chosen_hf_model = st.selectbox("Active HF Model", hf_model_options, index=model_index)
             os.environ["HF_MODEL"] = chosen_hf_model
+
 
             if hf_token_val:
                 st.success("🟢 HF Inference API: Configured")
