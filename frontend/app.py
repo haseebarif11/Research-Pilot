@@ -266,7 +266,14 @@ def main():
                 st.caption("To enable local Llama 3.1 inference, install Ollama and run `ollama pull llama3.1`.")
 
         # 🐛 DEBUG — remove once confirmed working on Streamlit Cloud
-        st.caption(f"🔧 DEBUG active backend: `{os.environ.get('LLM_BACKEND', '[not set — defaulting to ollama]')}`")
+        try:
+            _secret_keys = list(st.secrets.keys())
+        except Exception:
+            _secret_keys = ["(st.secrets unavailable)"]
+        st.caption(
+            f"🔧 DEBUG — LLM_BACKEND: `{os.environ.get('LLM_BACKEND', '[not set]')}` | "
+            f"st.secrets keys: `{_secret_keys}`"
+        )
 
         doc_count = vector_store.count()
         st.markdown(f"**Vector Knowledge Base**: `{doc_count}` chunks")
