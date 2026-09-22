@@ -12,6 +12,11 @@ hardware: cpu-basic
 
 # 🚀 ResearchPilot: 100% Local, Free, Open-Source Agentic RAG
 
+[![CI](https://github.com/haseebarif11/Research-Pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/haseebarif11/Research-Pilot/actions/workflows/ci.yml)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.111+-009688.svg?logo=fastapi)](https://fastapi.tiangolo.com)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.35+-FF4B4B.svg?logo=streamlit)](https://streamlit.io)
+[![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11-blue.svg?logo=python)](https://www.python.org/)
+
 > **Zero paid APIs. Zero account signups. Zero credit cards required.**  
 > Built entirely with open-source tools: **LangGraph**, **Ollama**, **ChromaDB**, **sentence-transformers**, **DuckDuckGo Search**, **FastAPI**, and **Streamlit**.
 
