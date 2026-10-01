@@ -135,7 +135,7 @@ def test_web_search_node_with_mocked_ddgs(base_state):
         }
     ]
 
-    with patch("ddgs.DDGS") as mock_ddgs_class:
+    with patch("agent.web_search.DDGS") as mock_ddgs_class:
         mock_instance = MagicMock()
         mock_instance.text.return_value = mock_results
         mock_ddgs_class.return_value = mock_instance
@@ -149,7 +149,7 @@ def test_web_search_node_with_mocked_ddgs(base_state):
 
 def test_web_search_node_error_does_not_fabricate(base_state):
     """Verify web_search_node on failure does NOT inject fabricated Wikipedia results."""
-    with patch("ddgs.DDGS") as mock_ddgs_class:
+    with patch("agent.web_search.DDGS") as mock_ddgs_class:
         mock_instance = MagicMock()
         mock_instance.text.side_effect = ConnectionError("DDGS service unreachable")
         mock_ddgs_class.return_value = mock_instance

@@ -1,6 +1,6 @@
 from typing import Dict, Any, List
 from agent.state import ResearchPilotState, Citation
-from agent.llm import get_llm_client
+from agent.llm import get_llm_client, OllamaUnavailableError
 
 SYNTHESIZER_PROMPT = """You are ResearchPilot, an advanced Agentic RAG assistant.
 Synthesize a comprehensive, authoritative, and well-structured answer to the user's question based strictly on the provided numbered sources.
@@ -107,6 +107,9 @@ def synthesizer_node(state: ResearchPilotState, client=None) -> Dict[str, Any]:
             prompt=prompt,
             system="You are an accurate, cited research synthesizer. Always include [1], [2] citations."
         )
+    except OllamaUnavailableError:
+        # Critical infrastructure error — surface to caller so the UI can show a clear error
+        raise
     except Exception as e:
         # Grounded retrieval heuristic synthesis if LLM backend is offline / unconfigured
         answer_parts = []
