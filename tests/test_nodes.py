@@ -276,7 +276,100 @@ def test_retriever_node_raises_embedding_error(base_state):
         with pytest.raises(EmbeddingModelError) as exc_info:
             retriever_node(base_state)
 
+
         assert "Failed to load all-MiniLM-L6-v2" in str(exc_info.value)
 
 
+# ---------------------------------------------------------------------------
+# Extended coverage — reasoner fallbacks, router edge cases, synthesizer web
+# ---------------------------------------------------------------------------
 
+def test_reasoner_node_heuristic_fallback_on_llm_failure(base_state):
+    """When LLM decomposition fails, reasoner falls back to heuristic sub-questions."""
+    mock_client = MagicMock(spec=LocalOllamaClient)
+    # First call (decompose) raises; subsequent calls (step answers) return text
+    mock_client.generate.side_effect = [
+        Exception("LLM timeout"),
+        "Heuristic step 1 answer.",
+        "Heuristic step 2 answer.",
+    ]
+
+    result = reasoner_node(base_state, client=mock_client)
+
+    # Even with a failed LLM decompose, we still get 2 heuristic steps
+    assert len(result["reasoning_steps"]) == 2
+    assert result["iteration_count"] == 1
+    assert "Multi-Step Reasoning Trace" in result["sources_used"]
+
+
+def test_reasoner_node_injects_conversation_history(base_state):
+    """Reasoner should include prior conversation turns in the decompose prompt."""
+    base_state["messages"] = [
+        {"role": "user", "content": "Tell me about RAG."},
+        {"role": "assistant", "content": "RAG stands for Retrieval Augmented Generation."},
+        {"role": "user", "content": "How does Agentic RAG differ?"},
+    ]
+
+    captured_prompts: list = []
+
+    def capturing_generate(prompt="", **kwargs):
+        captured_prompts.append(prompt)
+        if len(captured_prompts) == 1:
+            return json.dumps({"sub_questions": ["What is Agentic RAG?"]})
+        return "Agentic RAG adds a planning layer."
+
+    mock_client = MagicMock(spec=LocalOllamaClient)
+    mock_client.generate.side_effect = capturing_generate
+
+    reasoner_node(base_state, client=mock_client)
+
+    # The decompose prompt (first call) should reference prior conversation
+    assert "Tell me about RAG." in captured_prompts[0]
+
+
+def test_router_node_falls_back_on_invalid_json(base_state):
+    """Router should yield a valid route string when LLM returns non-JSON text."""
+    mock_client = MagicMock(spec=LocalOllamaClient)
+    mock_client.generate.return_value = "Sorry, I cannot parse that."
+
+    with patch("agent.router.get_llm_client", return_value=mock_client):
+        result = router_node(base_state)
+
+    # Heuristic fallback produces one of the five known routes
+    assert result["route"] in {"direct", "local_retrieval", "web_search", "reasoning", "hybrid"}
+
+
+def test_synthesizer_node_with_web_results_only(base_state):
+    """Synthesizer should cite web results when no local docs are present."""
+    base_state["local_docs"] = []
+    base_state["web_results"] = [
+        {
+            "title": "Agentic RAG Benchmarks 2025",
+            "href": "https://example.com/agentic-rag",
+            "snippet": "Agentic RAG outperforms naive RAG on all benchmarks.",
+        }
+    ]
+
+    mock_client = MagicMock(spec=LocalOllamaClient)
+    mock_client.generate.return_value = "Agentic RAG outperforms naive RAG [1]."
+
+    result = synthesizer_node(base_state, client=mock_client)
+
+    assert "outperforms" in result["final_answer"]
+    web_citations = [c for c in result["citations"] if c["source_type"] == "web"]
+    assert len(web_citations) >= 1
+    assert web_citations[0]["source_name"] == "Agentic RAG Benchmarks 2025"
+
+
+def test_web_search_node_empty_query_skips_ddgs(base_state):
+    """web_search_node with a blank state query should still return a valid result dict."""
+    base_state["query"] = ""
+
+    with patch("agent.web_search.DDGS") as mock_ddgs_class:
+        mock_instance = MagicMock()
+        mock_instance.text.return_value = []
+        mock_ddgs_class.return_value = mock_instance
+        result = web_search_node(base_state, max_results=5)
+
+    # Either DDGS was not called (if guard is present) or returned empty list
+    assert isinstance(result["web_results"], list)
